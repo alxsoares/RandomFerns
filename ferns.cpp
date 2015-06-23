@@ -139,16 +139,6 @@ public:
 		sum_n_in_c[label]++;
 	}
 
-	void count_all(double* imgs, double* labels, int img_len, int n_samples) {
-		double* img = imgs;
-		double* p_label = labels;
-		for (int i = 0; i < n_samples; i++) {
-			count(img, (int)(*p_label));
-			img = img + img_len;
-			p_label++;
-		}
-	}
-
 	void learn() {
 		for (unsigned int i = 0; i < n_classes; i++) {
 			double log_Z = log((double)sum_n_in_c[i] + u * n_indices);
@@ -168,7 +158,7 @@ public:
 };
 
 
-class Ferns {
+class RandomFerns {
 public:
 	unsigned int n_ferns;
 	unsigned int n_features;
@@ -179,7 +169,7 @@ public:
 
 	vector<Fern> ferns;
 
-	Ferns(unsigned int _n_ferns = 30, unsigned int _n_features = 10, unsigned int _n_classes = 2) : 
+	RandomFerns(unsigned int _n_ferns = 30, unsigned int _n_features = 10, unsigned int _n_classes = 2) : 
 		n_ferns(_n_ferns), n_features(_n_features), n_classes(_n_classes) {
 
 		for (unsigned int i = 0; i < n_ferns; i++) {
@@ -198,9 +188,18 @@ public:
 	}
 
 	void learn(double* imgs, double* labels, int img_len, int n_samples) {
-		for (unsigned int i = 0; i < n_ferns; i++) {
-			ferns[i].count_all(imgs, labels, img_len, n_samples);
-			ferns[i].learn();
+		double* img = imgs;
+		double* p_label = labels;
+		for (int i = 0; i < n_samples; i++) {
+			for (unsigned int j = 0; j < n_ferns; j++) {
+				ferns[j].count(img, (int)(*p_label));
+			}
+			img = img + img_len;
+			p_label++;
+		}
+		
+		for (unsigned int j = 0; j < n_ferns; j++) {
+			ferns[j].learn();
 		}
 	}
 
@@ -230,48 +229,66 @@ public:
 
 
 
-Ferns *ferns;
+RandomFerns *ferns;
 // input: options, height, width, imgs, labels
 // options: learn - 1, predict - 2, clear - 0
 // output: predictions
 void mexFunction(int nlhs, mxArray* plhs[], int nrhs, const mxArray* prhs[]) {
 
 	int opt = (int)mxGetScalar(prhs[0]);
-	int height = (int)mxGetScalar(prhs[1]);
-	int width = (int)mxGetScalar(prhs[2]);
-	double* imgs = (double*)mxGetData(prhs[3]);
-	int img_len = (int)mxGetM(prhs[3]);
-	int n_samples = (int)mxGetN(prhs[3]);
-	double* labels = NULL;
-	if (nrhs > 4) {
-		labels = mxGetPr(prhs[4]);
-	}
-
-	vector<double> confs;
-	double *p;
-	double *img;
-	switch (opt) {
-	case 1: 
-		srand(0);
 	
-		ferns = new Ferns(40, 12, 10);
+	// clean
+	if (opt == 0) {
+		if (ferns != NULL) {
+			delete ferns;
+		}
+		return;
+	}
+	
+	// init ferns
+	if (opt == 1) {
+		int height = (int)mxGetScalar(prhs[1]);
+		int width = (int)mxGetScalar(prhs[2]);
+		int n_ferns = 40;
+		if (nrhs > 3) {
+			n_ferns = (int)mxGetScalar(prhs[3]);
+		}
+		int n_features = 12;
+		if (nrhs > 4) {
+			n_features = (int)mxGetScalar(prhs[4]);
+		}
+		
+		srand(0);
+		ferns = new RandomFerns(n_ferns, n_features, 10);
 		ferns->fit_img_size(height, width);
+		return;
+	}
+	
+	// learn or update ferns(same thing)
+	if (opt == 2) {
+		double* imgs = (double*)mxGetData(prhs[1]);
+		int img_len = (int)mxGetM(prhs[1]);
+		int n_samples = (int)mxGetN(prhs[1]);
+		double* labels = mxGetPr(prhs[2]);
+		
 		ferns->learn(imgs, labels, img_len, n_samples);
-		break;
-	case 2:
+		return;
+	}
+	
+	// predict
+	if (opt == 3) {
+		double* imgs = (double*)mxGetData(prhs[1]);
+		int img_len = (int)mxGetM(prhs[1]);
+		int n_samples = (int)mxGetN(prhs[1]);
 		plhs[0] = mxCreateDoubleMatrix(n_samples, 1, mxREAL);
-		p = mxGetPr(plhs[0]);
-		img = imgs;
+		
+		vector<double> confs;
+		double *p = mxGetPr(plhs[0]);
+		double *img = imgs;
 		for (int i = 0; i < n_samples; i++) {
 			int prediction = ferns->predict(img, confs);
 			img += img_len;
 			*p++ = prediction;
 		}
-		break;
-	case 0:
-		delete ferns;
-		break;
-	default:
-		break;
 	}
 }
